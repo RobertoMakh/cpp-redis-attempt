@@ -1,3 +1,11 @@
+#include <iostream>
+#include <cstdio>
+#include <cstring>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <unistd.h>
+#include <arpa/inet.h>
+
 void do_something(int connfd){
     char rbuf[64] = {};
     ssize_t n = read(connfd, rbuf, sizeof(rbuf) - 1);
@@ -11,7 +19,7 @@ void do_something(int connfd){
     write(connfd,wbuf,strlen(wbuf));
 }
 
-void main(){
+int main(){
     int fd = socket(AF_INET, SOCK_STREAM, 0);
 
     int val = 1;
@@ -25,7 +33,7 @@ void main(){
 
     rv = listen(fd, SOMAXCONN);
 
-    while(true){
+    while(1){
         struct sockaddr_in client_addr = {};
         socklen_t addrlen = sizeof(client_addr);
         int connfd = accept(fd, (struct sockaddr *)&client_addr, &addrlen);
@@ -33,4 +41,5 @@ void main(){
         do_something(connfd);
         close(connfd);
     }
+    return 0;
 }
