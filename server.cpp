@@ -5,18 +5,78 @@
 #include <netinet/in.h>
 #include <unistd.h>
 #include <arpa/inet.h>
+#include <sstream>
 
-void do_something(int connfd){
-    char rbuf[64] = {};
+#include <unordered_map>
+#include <shared_mutex>
+#include <mutex>
+#include <string>
+
+class KVStore {
+private:
+    std::unordered_map<std::string, std::string> store;
+    std::shared_mutex rw_lock;
+
+public:
+    void set(const std::string& key, const std::string& value) {
+        std::unique_lock<std::shared_mutex> lock(rw_lock);
+        store[key] = value;
+    }
+
+    std::string get(const std::string& key) {
+        std::shared_lock<std::shared_mutex> lock(rw_lock);
+        auto it = store.find(key);
+        if (it != store.end()) {
+            return it->second;
+        }
+        return "Key not found";
+    }
+};
+
+KVStore db;
+
+void do_something(int connfd) {
+    char rbuf[1024] = {}; 
     ssize_t n = read(connfd, rbuf, sizeof(rbuf) - 1);
-    if(n<0){
-        perror("read() failed");
+    if (n <= 0) {
+        if (n < 0) perror("read() failed");
         return;
     }
-    printf("client says : %s\n",rbuf);
+
     
-    char wbuf[] = "world";
-    write(connfd,wbuf,strlen(wbuf));
+    std::string request(rbuf);
+    std::istringstream iss(request);
+    std::string command, key, value;
+
+    iss >> command; 
+
+    std::string response;
+
+    if (command == "SET") {
+        iss >> key;
+        
+        std::getline(iss >> std::ws, value); 
+        
+        if (key.empty() || value.empty()) {
+            response = "ERR: Usage SET <key> <value>\n";
+        } else {
+            db.set(key, value);
+            response = "Done\n";
+        }
+    } 
+    else if (command == "GET") {
+        iss >> key;
+        if (key.empty()) {
+            response = "ERR: Usage GET <key>\n";
+        } else {
+            response = db.get(key) + "\n";
+        }
+    } 
+    else {
+        response = "ERR: Unknown command\n";
+    }
+
+    write(connfd, response.c_str(), response.length());
 }
 
 int main(){

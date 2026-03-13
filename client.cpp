@@ -17,7 +17,7 @@ int main(){
     addr.sin_addr.s_addr = ntohl(INADDR_LOOPBACK);
     int rv = connect(fd,(const struct sockaddr *)&addr, sizeof(addr));
 
-    char msg[] = "hello";
+    char msg[] = "SET name Roberto";
     write(fd,msg,strlen(msg));
 
     char rbuf[64] = {};
