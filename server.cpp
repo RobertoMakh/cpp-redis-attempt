@@ -6,10 +6,15 @@
 #include <unistd.h>
 #include <arpa/inet.h>
 #include <sstream>
-
+//threads:
+#include <queue>
+#include <thread>
+#include <vector>
+//hashmap and locks:
 #include <unordered_map>
-#include <shared_mutex>
+#include <condition_variable>
 #include <mutex>
+#include <shared_mutex>
 #include <string>
 
 class KVStore {
@@ -79,6 +84,33 @@ void do_something(int connfd) {
     write(connfd, response.c_str(), response.length());
 }
 
+
+
+
+std::queue<int> client_queue;
+std::mutex queue_mutex;
+std::condition_variable condition;
+
+
+void worker_thread() {
+    while (true) {
+        int connfd = -1;
+        { 
+            std::unique_lock<std::mutex> lock(queue_mutex);
+            
+            while (client_queue.empty()) {
+                condition.wait(lock);
+            }
+            
+            connfd = client_queue.front();
+            client_queue.pop();
+        } 
+        
+        do_something(connfd);
+        close(connfd);
+    }
+}
+
 int main(){
     int fd = socket(AF_INET, SOCK_STREAM, 0);
 
@@ -92,14 +124,22 @@ int main(){
     int rv = bind(fd, (const struct sockaddr *)&addr,sizeof(addr));
 
     rv = listen(fd, SOMAXCONN);
+    const int NUM_THREADS = 4;
+    std::vector<std::thread> pool;
+    for (int i = 0; i < NUM_THREADS; ++i) {
+        pool.emplace_back(worker_thread);
+    }
 
     while(1){
         struct sockaddr_in client_addr = {};
         socklen_t addrlen = sizeof(client_addr);
         int connfd = accept(fd, (struct sockaddr *)&client_addr, &addrlen);
         if(connfd < 0) continue;
-        do_something(connfd);
-        close(connfd);
+        {
+            std::lock_guard<std::mutex> lock(queue_mutex);
+            client_queue.push(connfd);
+        }
+        
+        condition.notify_one();
     }
-    return 0;
 }
