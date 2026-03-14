@@ -10,7 +10,8 @@
 #include <queue>
 #include <thread>
 #include <vector>
-//hashmap and locks:
+//ds and locks:
+#include <list>
 #include <unordered_map>
 #include <condition_variable>
 #include <mutex>
@@ -19,20 +20,45 @@
 
 class KVStore {
 private:
-    std::unordered_map<std::string, std::string> store;
-    std::shared_mutex rw_lock;
+    int capacity;
+    std::list<std::string> lru_list;
+    
+    std::unordered_map<std::string, std::pair<std::string, std::list<std::string>::iterator>> store;
+    
+    std::mutex db_lock;
 
 public:
+    KVStore(int cap = 1000) : capacity(cap) {} 
+
     void set(const std::string& key, const std::string& value) {
-        std::unique_lock<std::shared_mutex> lock(rw_lock);
-        store[key] = value;
+        std::unique_lock<std::mutex> lock(db_lock);
+        
+        auto it = store.find(key);
+        if (it != store.end()) {
+            it->second.first = value;
+            lru_list.erase(it->second.second);
+            lru_list.push_front(key);
+            it->second.second = lru_list.begin();
+        } else {
+            if (store.size() >= capacity) {
+                std::string oldest_key = lru_list.back();
+                lru_list.pop_back();
+                store.erase(oldest_key);
+            }
+            lru_list.push_front(key);
+            store[key] = {value, lru_list.begin()};
+        }
     }
 
     std::string get(const std::string& key) {
-        std::shared_lock<std::shared_mutex> lock(rw_lock);
+        std::unique_lock<std::mutex> lock(db_lock);
+        
         auto it = store.find(key);
         if (it != store.end()) {
-            return it->second;
+            lru_list.erase(it->second.second);
+            lru_list.push_front(key);
+            it->second.second = lru_list.begin();
+            return it->second.first;
         }
         return "Key not found";
     }
